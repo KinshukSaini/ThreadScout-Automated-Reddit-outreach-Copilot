@@ -1,14 +1,88 @@
 import {GoogleGenAI} from '@google/genai';
 import {NextRequest, NextResponse} from 'next/server';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
-const ai = new GoogleGenAI({apiKey: GEMINI_API_KEY});
+const ai = GEMINI_API_KEY ? new GoogleGenAI({apiKey: GEMINI_API_KEY}) : null;
 
 type posts = {
     post_id: string;
     subreddit: string;
     reasoning: string;
     reply_content: string;
+}
+
+type GroqChatResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+  error?: {
+    message?: string;
+  };
+};
+
+async function generateWithGroq(prompt: string): Promise<string> {
+  if (!GROQ_API_KEY) {
+    throw new Error("Missing GROQ_API_KEY");
+  }
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      temperature: 0.4,
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    }),
+  });
+
+  const raw = (await response.json()) as GroqChatResponse;
+
+  if (!response.ok) {
+    const details = raw.error?.message || `status ${response.status}`;
+    throw new Error(`Groq request failed: ${details}`);
+  }
+
+  const content = raw.choices?.[0]?.message?.content;
+  if (!content || typeof content !== "string") {
+    throw new Error("Groq returned an empty response");
+  }
+
+  return content;
+}
+
+async function generateTextWithFallback(prompt: string): Promise<string> {
+  let geminiError = "Gemini unavailable";
+
+  if (ai) {
+    try {
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+        contents: prompt,
+      });
+
+      return response.text ?? "";
+    } catch (error) {
+      geminiError = error instanceof Error ? error.message : "Gemini request failed";
+      console.warn("Gemini failed, falling back to Groq:", geminiError);
+    }
+  }
+
+  if (!GROQ_API_KEY) {
+    throw new Error(`Gemini failed and GROQ_API_KEY is missing. Gemini error: ${geminiError}`);
+  }
+
+  return generateWithGroq(prompt);
 }
 
 function parseLLMResponse(aiResponseString : string) : posts[] {
@@ -75,8 +149,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json([]);
     }
 
-    if (!GEMINI_API_KEY) {
-    return NextResponse.json({ error: "Missing GEMINI_API_KEY" }, { status: 500 });
+    if (!GEMINI_API_KEY && !GROQ_API_KEY) {
+    return NextResponse.json({ error: "Missing GEMINI_API_KEY and GROQ_API_KEY" }, { status: 500 });
     }
 
     const prompt = `
@@ -88,9 +162,8 @@ export async function POST(request: NextRequest) {
         Website Link: ${websiteUrl}
 
         [TASK]
-        1. EVALUATE: Analyze the provided Reddit posts. Determine which ones are "High Intent" (the user is actively seeking a solution, complaining about a specific pain point, or asking for a tool recommendation).
-        2. PERSONA: Act as a helpful peer "stumbled upon" the thread. 
-        3. WRITE: Draft a contextual REPLY for 1-3 high-intent post.
+        1. PERSONA: Act as a helpful peer "stumbled upon" the thread. 
+        2. WRITE: Draft a contextual REPLY for the posts.
 
         [GUIDELINES for THE REPLY]
         - Start by acknowledging the user's specific problem mentioned in their post.
@@ -116,17 +189,14 @@ export async function POST(request: NextRequest) {
         ]
     `;
     try {
-      const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-      contents: prompt,
-      });
-      console.log("Raw LLM Response:", response.text);
-      const parsedPosts = parseLLMResponse(response.text ?? "");
+      const text = await generateTextWithFallback(prompt);
+      console.log("Raw LLM Response:", text);
+      const parsedPosts = parseLLMResponse(text);
       console.log("Parsed LLM Response:", parsedPosts);
       return NextResponse.json(parsedPosts);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to generate post content";
-      console.error("GenLLM generateContent failed:", message);
+      console.error("GenLLM generation failed:", message);
       return NextResponse.json({ error: message }, { status: 502 });
     }
 }

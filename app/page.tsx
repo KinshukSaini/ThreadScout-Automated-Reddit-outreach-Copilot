@@ -96,6 +96,12 @@ export default function Home() {
           placeholder="Enter your URL here..."
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !isLoading) {
+              e.preventDefault();
+              handleSubmit();
+            }
+          }}
         />
         <button
           onClick={handleSubmit}
@@ -103,6 +109,7 @@ export default function Home() {
           className={isLoading
             ? "bg-violet-900/60 text-violet-300 py-2 px-4 rounded-2xl cursor-not-allowed"
             : "bg-violet-900 hover:bg-violet-800 text-violet-200 py-2 px-4 rounded-2xl"}
+
         >
           {isLoading ? "Submitting..." : "submit"}
         </button>

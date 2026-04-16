@@ -190,6 +190,7 @@ async function handle(url: string, crequest: NextRequest) {
         
         // call the LLM with the crawled data to get search terms
         const llmResult = await callLLM(crequest.nextUrl.origin, crawlData.pages ?? []);
+        
         const searchTerms = llmResult.searchTerms;
         // console.log("Search terms:", searchTerms);
         // console.log("Website description:", llmResult.description);

@@ -1,13 +1,87 @@
 import {GoogleGenAI} from '@google/genai';
 import {NextRequest, NextResponse} from 'next/server';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
-const ai = new GoogleGenAI({apiKey: GEMINI_API_KEY});
+const ai = GEMINI_API_KEY ? new GoogleGenAI({apiKey: GEMINI_API_KEY}) : null;
 
 type LLMOutput = {
   description: string;
   searchTerms: string[];
 };
+
+type GroqChatResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+  error?: {
+    message?: string;
+  };
+};
+
+async function generateWithGroq(prompt: string): Promise<string> {
+  if (!GROQ_API_KEY) {
+    throw new Error("Missing GROQ_API_KEY");
+  }
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      temperature: 0.2,
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    }),
+  });
+
+  const raw = (await response.json()) as GroqChatResponse;
+
+  if (!response.ok) {
+    const details = raw.error?.message || `status ${response.status}`;
+    throw new Error(`Groq request failed: ${details}`);
+  }
+
+  const content = raw.choices?.[0]?.message?.content;
+  if (!content || typeof content !== "string") {
+    throw new Error("Groq returned an empty response");
+  }
+
+  return content;
+}
+
+async function generateTextWithFallback(prompt: string): Promise<string> {
+  let geminiError = "Gemini unavailable";
+
+  if (ai) {
+    try {
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+        contents: prompt,
+      });
+
+      return response.text ?? "";
+    } catch (error) {
+      geminiError = error instanceof Error ? error.message : "Gemini request failed";
+      console.warn("Gemini failed, falling back to Groq:", geminiError);
+    }
+  }
+
+  if (!GROQ_API_KEY) {
+    throw new Error(`Gemini failed and GROQ_API_KEY is missing. Gemini error: ${geminiError}`);
+  }
+
+  return generateWithGroq(prompt);
+}
 
 function toSearchTerms(text: string): string[] {
   const directParse = (() => {
@@ -114,8 +188,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "pagesData must be an array" }, { status: 400 });
   }
 
-  if (!GEMINI_API_KEY) {
-    return NextResponse.json({ error: "Missing GEMINI_API_KEY" }, { status: 500 });
+  if (!GEMINI_API_KEY && !GROQ_API_KEY) {
+    return NextResponse.json({ error: "Missing GEMINI_API_KEY and GROQ_API_KEY" }, { status: 500 });
   }
 
   const prompt =`
@@ -139,17 +213,13 @@ export async function POST(request: NextRequest) {
 `
 
   try {
-    const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-      contents: prompt,
-    });
-
-    const llmOutput = toLLMOutput(response.text ?? "");
+    const text = await generateTextWithFallback(prompt);
+    const llmOutput = toLLMOutput(text);
     console.log(llmOutput);
     return NextResponse.json(llmOutput);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to generate content";
-    console.error("Gemini generateContent failed:", message);
+    console.error("LLM generation failed:", message);
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

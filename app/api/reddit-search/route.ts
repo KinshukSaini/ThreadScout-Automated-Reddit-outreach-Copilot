@@ -52,7 +52,8 @@ export async function POST(request: NextRequest) {
   }
 
   const searchSeed = description || keywords.join(", ");
-  const searchIntent = `People on Reddit asking for recommendations or complaining about: ${searchSeed}. Find me the most recent Reddit threads where people are asking for recommendations or complaining about ${searchSeed}. Be sure to now take the posts that already talking about the specific website the campaign is about. I only want posts that are asking for recommendations or complaining about the topic.`;
+  const searchIntent = `People on Reddit asking for recommendations or complaining about: ${searchSeed}. Find me the most recent Reddit threads where people are asking for recommendations or complaining about ${searchSeed}. Be sure to now take the posts that already talking about the specific website the campaign is about. I only want posts that are asking for recommendations or complaining about the topic.
+  avoid posts that already mentions the specific website the campaign is about.`;
 
   try {
     const result = await exa.search(searchIntent, {

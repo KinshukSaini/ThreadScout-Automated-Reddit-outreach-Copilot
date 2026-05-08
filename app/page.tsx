@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
 import ScoutCard from "@/components/scoutCard";
+import CreateScout from "@/components/createScout";
 const scouts = [
   {
     id: 1,
@@ -30,9 +31,16 @@ const scouts = [
   },
 
 ];
-
 export default function Home() {
   const [burgerOpen, setBurgerOpen] = useState(false);
+  const [createScoutOpen, setCreateScoutOpen] = useState(false);
+  
+  
+  const handleCreateScout = () => {
+    setCreateScoutOpen(true);
+  }
+  
+  
   return (
     <div className="bg-gray-800 text-violet-200 min-h-screen w-full px-4 py-10 flex flex-col items-center relative overflow-x-hidden">
     
@@ -50,10 +58,14 @@ export default function Home() {
         Sign in
       </button>
     </div>
-
+    
+    {/*  */}
+    {createScoutOpen && <div className="absolute inset-0 z-40 bg-black/40" onClick={() => setCreateScoutOpen(false)}></div>}
+    {createScoutOpen && <CreateScout onClose={() => setCreateScoutOpen(false)} />}
+    
     {/* burger menu */}
       <button onClick={() => setBurgerOpen(!burgerOpen)} className="absolute top-5 left-5 z-50">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-white">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 text-white">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.633h16.5M3.75 12h16.5m-16.5 5.367h16.5" />
       </svg>
     </button>
@@ -83,7 +95,7 @@ export default function Home() {
     {/* scouts */}
     <div className="flex flex-row space-between w-full justify-center">
       <div className="w-[60%] text-align-left text-3xl p-0 m-5" >your scouts</div>
-      <button className="p-2 border-white border-2 rounded text-white hover:bg-violet-900 hover:transition-all mb-5 w-auto">
+      <button onClick={() => handleCreateScout()} className="p-2 border-white border-2 rounded text-white hover:bg-violet-900 hover:transition-all mb-5 w-auto">
         + Create Scout
       </button>
     </div>
@@ -94,7 +106,10 @@ export default function Home() {
         {scouts.map(scout => (
           <ScoutCard key={scout.id} id={scout.id} name={scout.name} scoutURL={scout.scoutURL} description={scout.description} />
         ))}      
+          <div onClick={handleCreateScout} className="cursor-pointer">
           <ScoutCard id={0} name={"Create new scout"} scoutURL={""} description={"Click here to create a new scout"} />
+          </div>
+          
       </div>
     </div>
     </div>

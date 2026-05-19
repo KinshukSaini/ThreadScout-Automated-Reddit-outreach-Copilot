@@ -93,23 +93,37 @@ function parseLLMResponse(aiResponseString : string) : posts[] {
       .replace(/\s*```\s*$/i, "")
       .trim();
 
-    // Capture full array/object blocks so nested JSON can still be parsed.
-    const arrayMatch = normalized.match(/\[[\s\S]*\]/);
-    const objectMatch = normalized.match(/\{[\s\S]*\}/);
-    const match = arrayMatch ?? objectMatch;
+    const firstArrayIndex = normalized.indexOf("[");
+    const firstObjectIndex = normalized.indexOf("{");
+    const startIndex = [firstArrayIndex, firstObjectIndex]
+      .filter((index) => index >= 0)
+      .sort((a, b) => a - b)[0];
 
-    if (match) {
-      const parsed = JSON.parse(match[0]);
-      if (Array.isArray(parsed)) {
-        return parsed as posts[];
-      }
-      if (parsed && typeof parsed === 'object') {
-        return [parsed as posts];
-      }
-      throw new Error("Parsed JSON is neither an array nor an object");
-    } else {
+    if (typeof startIndex !== "number") {
       throw new Error("No JSON found in AI response");
     }
+
+    for (let endIndex = normalized.length; endIndex > startIndex; endIndex--) {
+      const candidate = normalized.slice(startIndex, endIndex).trim();
+
+      if (!candidate.endsWith("]") && !candidate.endsWith("}")) {
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(candidate);
+        if (Array.isArray(parsed)) {
+          return parsed as posts[];
+        }
+        if (parsed && typeof parsed === 'object') {
+          return [parsed as posts];
+        }
+      } catch {
+        // Keep scanning for a smaller slice that contains just the JSON payload.
+      }
+    }
+
+    throw new Error("No valid JSON found in AI response");
   } catch (error) {
     console.error("Failed to parse AI JSON:", error, "Response (truncated):", aiResponseString.substring(0, 500));
     return []; // Return empty array as fallback
@@ -178,7 +192,7 @@ export async function POST(request: NextRequest) {
         [OUTPUT]
         Return ONLY a JSON array of objects with the following structure.
         Include one object per selected posts.
-        If no post is relevant, return [{"no posts found": "No relevant Reddit posts"}]:
+        If no post is relevant, return an empty JSON array []:
         [
             {
                 "post_id": "The ID of the specific Reddit post/comment you are replying to",

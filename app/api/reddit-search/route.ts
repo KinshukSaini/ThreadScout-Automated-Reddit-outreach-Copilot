@@ -20,6 +20,56 @@ type RedditSearchResponse = {
   };
 };
 
+function mapExaResults(results: Array<{ id: string; title?: string | null; url?: string | null; text?: string | null; highlights?: string[] | null }>) {
+  return results.map((item) => ({
+    id: item.id,
+    title: item.title ?? "",
+    text: typeof item.text === "string"
+      ? item.text
+      : Array.isArray(item.highlights)
+        ? item.highlights.join(" ")
+        : "",
+    subreddit: extractSubredditFromUrl(item.url ?? ""),
+    threadUrl: item.url ?? "",
+    isExternal: false,
+  }));
+}
+
+async function searchRedditFallback(searchSeed: string) {
+  const query = searchSeed
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 5)
+    .join(" OR ");
+
+  const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=new&limit=5`;
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 ThreadScout/1.0",
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Reddit fallback failed with status ${response.status}`);
+  }
+
+  const json = (await response.json()) as RedditSearchResponse;
+  return json.data.children.map((child) => {
+    const post = child.data;
+
+    return {
+      id: post.id,
+      title: post.title,
+      text: post.text,
+      subreddit: post.subreddit,
+      threadUrl: post.threadUrl,
+      isExternal: post.isExternal,
+    };
+  });
+}
+
 export async function POST(request: NextRequest) {
   let body: { keywords?: unknown; Description?: unknown; description?: unknown };
 
@@ -52,12 +102,11 @@ export async function POST(request: NextRequest) {
   }
 
   const searchSeed = description || keywords.join(", ");
-  const searchIntent = `People on Reddit asking for recommendations or complaining about: ${searchSeed}. Find me the most recent Reddit threads where people are asking for recommendations or complaining about ${searchSeed}. Be sure to now take the posts that already talking about the specific website the campaign is about. I only want posts that are asking for recommendations or complaining about the topic.
-  avoid posts that already mentions the specific website the campaign is about.`;
+  const searchIntent = `${searchSeed} site:reddit.com`;
 
   try {
     const result = await exa.search(searchIntent, {
-      includeDomains: ["reddit.com"],
+      includeDomains: ["reddit.com", "www.reddit.com"],
       type: "auto",
       contents: {
         text: true,
@@ -65,28 +114,25 @@ export async function POST(request: NextRequest) {
           numSentences: 3,
         },
       },
-      numResults: 3,
+      numResults: 10,
     });
 
     console.log("Exa Search Result:", result);
-    const postsForAI = result.results.map((item) => ({
-      id: item.id,
-      title: item.title ?? "",
-      text: "text" in item && typeof item.text === "string"
-        ? item.text
-        : "highlights" in item && Array.isArray(item.highlights)
-          ? item.highlights.join(" ")
-          : "",
-      subreddit: extractSubredditFromUrl(item.url),
-      threadUrl: item.url,
-      isExternal: false,
-    }));
+    const postsForAI = mapExaResults(result.results ?? []);
+
+    if (postsForAI.length === 0) {
+      return NextResponse.json(await searchRedditFallback(searchSeed));
+    }
 
     return NextResponse.json(postsForAI);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to search Reddit threads";
-    console.error("reddit-search failed:", message);
-    return NextResponse.json({ error: message }, { status: 502 });
+    try {
+      return NextResponse.json(await searchRedditFallback(searchSeed));
+    } catch (fallbackError) {
+      const message = fallbackError instanceof Error ? fallbackError.message : "Failed to search Reddit threads";
+      console.error("reddit-search failed:", message);
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
   }
   
   // const postsForAI = json.data.children.map((child) => {

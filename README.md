@@ -89,6 +89,12 @@ app/
 Create a `.env.local` file in project root.
 
 ```env
+# GitHub OAuth for NextAuth
+GITHUB_ID=your_github_oauth_app_client_id
+GITHUB_SECRET=your_github_oauth_app_client_secret
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=generate_a_long_random_secret
+
 # Required for Reddit thread search
 EXA_API_KEY=your_exa_api_key
 
@@ -106,6 +112,14 @@ GROQ_MODEL=llama-3.3-70b-versatile
 - If Gemini works, Gemini is used.
 - If Gemini fails and `GROQ_API_KEY` exists, request retries on Groq.
 - If neither provider is available, endpoints return an error.
+
+### GitHub OAuth setup
+
+1. Create a GitHub OAuth App in GitHub Developer Settings.
+2. Set the callback URL to `http://localhost:3000/api/auth/callback/github` for local development.
+3. Copy the app's Client ID and Client Secret into `GITHUB_ID` and `GITHUB_SECRET`.
+4. Generate a strong `NEXTAUTH_SECRET` and keep it stable between restarts.
+5. Restart the dev server after updating `.env.local`.
 
 ## Getting Started
 
